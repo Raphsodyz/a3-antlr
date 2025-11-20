@@ -77,7 +77,49 @@ options{
 prog: main_function function* EOF;
 main_function: type 'main' FP LP FK function_body LK;
 function: type ID FP LP FK function_body LK;
-function_body: (declaration SCOMMA | assignment SCOMMA | printf_stmt | expr SCOMMA)*;
+
+function_body: (statement)* ;
+
+statement
+    : ifStatement
+    | whileStatement
+    | doWhileStatement
+    | forStatement
+    | block
+    | declaration SCOMMA
+    | assignment SCOMMA
+    | printf_stmt
+    | expr SCOMMA
+    | SCOMMA
+    ;
+
+block: FK (statement)* LK ;
+
+ifStatement
+    : IF FP expr LP statement (ELSE statement)?
+    ;
+
+whileStatement
+    : WHILE FP expr LP statement
+    ;
+
+doWhileStatement
+    : DO statement WHILE FP expr LP SCOMMA
+    ;
+
+forStatement
+    : FOR FP forInit? SCOMMA conditionExpr? SCOMMA forUpdate? LP statement
+    ;
+
+forInit
+    : declaration
+    | simpleAssignment
+    ;
+
+forUpdate
+    : simpleAssignment
+    ;
+
 declaration: t=type id=ID ( OP_ASS e = expr)?
 {
     String name = $id.getText();
@@ -124,6 +166,14 @@ assignment: id = ID OP_ASS e = expr
 
     variables.put($id.getText(), val);
 };
+
+simpleAssignment
+    : ID OP_ASS expr
+    ;
+
+conditionExpr
+    : expr
+    ;
 
 expr returns [TypedValue value] : left = term
 {
@@ -251,6 +301,9 @@ ID: [a-zA-Z] ([a-zA-Z] | [0-9])* ;
 OP: '+' | '-' | '*' | '/' ;
 IF: 'if' ;
 ELSE: 'else' ;
+WHILE: 'while' ;
+DO: 'do' ;
+FOR: 'for' ;
 FP: '(' ;
 LP: ')' ;
 FK: '{' ;
