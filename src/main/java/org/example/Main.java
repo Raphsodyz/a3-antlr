@@ -6,13 +6,15 @@ import org.example.generated.CCompilerLexer;
 import org.example.generated.CCompilerParser;
 
 public class Main {
-    public static void main(String[] args) {
-        String input = "int main() {\n" +
-                "    int a = 10 * 5 + 2;\n" +
-                "    int b = 5;\n" +
-                "    int c = 20 * 20;\n" +
-                "    printf(\"valor %d\"+ c);\n" +
-                "}\n";
+    static void main(String[] args) {
+        String input = """
+                int main() {
+                    int a = 10 * 5 + 2;
+                    int b = 5;
+                    int c = 20 * 20;
+                    printf("valor %d"+ c);
+                }
+                """;
 
         // Criar o lexer
         CharStream charStream = CharStreams.fromString(input);
