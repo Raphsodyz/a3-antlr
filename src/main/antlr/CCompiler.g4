@@ -1,10 +1,8 @@
 grammar CCompiler;
 
-options{
-    language = Java;
-}
+options { language = Java; }
 
-//Imports
+// Imports
 @parser::header {
     import java.math.BigDecimal;
     import java.util.Map;
@@ -73,10 +71,14 @@ options{
     }
 }
 
-// Regras do Parser
+// ----------------
+// Parser rules
+// ----------------
+
 prog: main_function function* EOF;
-main_function: type 'main' FP LP FK function_body LK;
-function: type ID FP LP FK function_body LK;
+
+main_function: type 'main' '(' ')' '{' function_body '}' ;
+function: type ID '(' ')' '{' function_body '}' ;
 
 function_body: (statement)* ;
 
@@ -86,29 +88,30 @@ statement
     | doWhileStatement
     | forStatement
     | block
-    | declaration SCOMMA
-    | assignment SCOMMA
+    | declaration ';'
+    | assignment ';'
     | printf_stmt
-    | expr SCOMMA
-    | SCOMMA
+    | scanf_stmt
+    | expr ';'
+    | ';'
     ;
 
-block: FK (statement)* LK ;
+block: '{' (statement)* '}' ;
 
 ifStatement
-    : IF FP expr LP statement (ELSE statement)?
+    : 'if' '(' expr ')' statement ( 'else' statement )?
     ;
 
 whileStatement
-    : WHILE FP expr LP statement
+    : 'while' '(' expr ')' statement
     ;
 
 doWhileStatement
-    : DO statement WHILE FP expr LP SCOMMA
+    : 'do' statement 'while' '(' expr ')' ';'
     ;
 
 forStatement
-    : FOR FP forInit? SCOMMA conditionExpr? SCOMMA forUpdate? LP statement
+    : 'for' '(' forInit? ';' expr? ';' forUpdate? ')' statement
     ;
 
 forInit
@@ -120,195 +123,271 @@ forUpdate
     : simpleAssignment
     ;
 
-declaration: t=type id=ID ( OP_ASS e = expr)?
-{
-    String name = $id.getText();
-    if (variables.containsKey(name)) {
-        throw new RuntimeException("Variable already declared: '" + name
-            + "' at line " + $id.getLine()
-            + ":" + $id.getCharPositionInLine()
-        );
-    }
-
-    TypedValue val = null;
-    if ($e.value != null) val = $e.value;
-
-    if (val == null) {
-        switch($t.typeKind) {
-            case INT: val = new TypedValue(0); break;
-            case BOOL: val = new TypedValue(false); break;
-            case DECIMAL: val = new TypedValue(new BigDecimal("0")); break;
+declaration
+    : t=type id=ID ( OP_ASS e=expr )?
+    {
+        String name = $id.getText();
+        if (variables.containsKey(name)) {
+            throw new RuntimeException("Variable already declared: '" + name
+                + "' at line " + $id.getLine()
+                + ":" + $id.getCharPositionInLine()
+            );
         }
-    }
-    else {
-        if (!isAssignable($t.typeKind, val))
-            throw new RuntimeException("Cannot assign " + val.kind + " to " + $t.typeKind);
 
-        if ($t.typeKind == TypeKind.DECIMAL && val.kind == TypedValue.Kind.INT)
+        TypedValue val = null;
+        CCompilerParser.DeclarationContext dctx = (CCompilerParser.DeclarationContext)_localctx;
+        if (dctx.e != null) val = dctx.e.value;
+
+        if (val == null) {
+            switch($t.typeKind) {
+                case INT: val = new TypedValue(0); break;
+                case BOOL: val = new TypedValue(false); break;
+                case DECIMAL: val = new TypedValue(new BigDecimal("0")); break;
+                case STRING: val = new TypedValue(""); break;
+            }
+        }
+        else {
+            if (!isAssignable($t.typeKind, val))
+                throw new RuntimeException("Cannot assign " + val.kind + " to " + $t.typeKind);
+
+            if ($t.typeKind == TypeKind.DECIMAL && val.kind == TypedValue.Kind.INT)
+                val = new TypedValue(val.asBigDecimal());
+        }
+
+        variables.put($id.getText(), val);
+    }
+    ;
+
+assignment
+    : id=ID OP_ASS e=expr
+    {
+        TypedValue val = $e.value;
+        if (!variables.containsKey($id.getText()))
+            throw new RuntimeException("Undefined variable: " + $id.getText());
+
+        TypedValue old = variables.get($id.getText());
+        if (old.kind == TypedValue.Kind.DECIMAL && val.kind == TypedValue.Kind.INT)
             val = new TypedValue(val.asBigDecimal());
+
+        if (!isAssignable(old.kind, val))
+            throw new RuntimeException("Cannot assign " + val.kind + " to variable of type " + old.kind);
+
+        variables.put($id.getText(), val);
     }
-
-    variables.put($id.getText(), val);
-};
-
-assignment: id = ID OP_ASS e = expr
-{
-    TypedValue val = $e.value;
-    if (!variables.containsKey($id.getText()))
-        throw new RuntimeException("Undefined variable: " + $id.getText());
-
-    TypedValue old = variables.get($id.getText());
-    if (old.kind == TypedValue.Kind.DECIMAL && val.kind == TypedValue.Kind.INT)
-        val = new TypedValue(val.asBigDecimal());
-
-    if (!isAssignable(old.kind, val))
-        throw new RuntimeException("Cannot assign " + val.kind + " to variable of type " + old.kind);
-
-    variables.put($id.getText(), val);
-};
+    ;
 
 simpleAssignment
     : ID OP_ASS expr
     ;
 
-conditionExpr
-    : expr
+/*
+ Expression precedence:
+   expr    -> relational (==, !=, <, >, <=, >=)
+   addExpr -> +, -
+   term    -> *, /
+   factor  -> literals, id, '(' expr ')'
+*/
+
+expr returns [TypedValue value]
+    : left=relExpr { $value = $left.value; } ;
+
+relExpr returns [TypedValue value]
+    : left=addExpr { $value = $left.value; }
+      ( op=(LT | GT | LE | GE | EQ | NEQ) right=addExpr
+        {
+            if (!isNumeric($left.value) || !isNumeric($right.value))
+                throw new RuntimeException("Relational operators require numeric operands");
+
+            BigDecimal a = $left.value.asBigDecimal();
+            BigDecimal b = $right.value.asBigDecimal();
+
+            boolean result;
+            String opname = $op.getText();
+            switch (opname) {
+                case "<":  result = a.compareTo(b) < 0; break;
+                case ">":  result = a.compareTo(b) > 0; break;
+                case "<=": result = a.compareTo(b) <= 0; break;
+                case ">=": result = a.compareTo(b) >= 0; break;
+                case "==": result = a.compareTo(b) == 0; break;
+                case "!=": result = a.compareTo(b) != 0; break;
+                default: throw new RuntimeException("Invalid relational op: " + opname);
+            }
+
+            $value = new TypedValue(result);
+        }
+      )?
     ;
 
-expr returns [TypedValue value] : left = term
-{
-    $value = $left.value;
-}
-(   op=('+'|'-') right = term
-    {
-        if ($op.getText().equals("+") &&
-            ($value.kind == TypedValue.Kind.STRING || $right.value.kind == TypedValue.Kind.STRING)) {
-            String a = $value.toString();
-            String b = $right.value.toString();
-            $value = new TypedValue(a + b);
-        } else {
+addExpr returns [TypedValue value]
+    : left=term { $value = $left.value; }
+      ( op=('+'|'-') right=term
+        {
+            if ($op.getText().equals("+") &&
+                ($value.kind == TypedValue.Kind.STRING || $right.value.kind == TypedValue.Kind.STRING)) {
+                String a = $value.toString();
+                String b = $right.value.toString();
+                $value = new TypedValue(a + b);
+            } else {
+                if (!isNumeric($value) || !isNumeric($right.value))
+                    throw new RuntimeException("Operator " + $op.getText() + " requires numeric operands");
+
+                if ($value.kind == TypedValue.Kind.DECIMAL || $right.value.kind == TypedValue.Kind.DECIMAL) {
+                    BigDecimal a = $value.asBigDecimal();
+                    BigDecimal b = $right.value.asBigDecimal();
+                    BigDecimal res = $op.getText().equals("+") ? a.add(b) : a.subtract(b);
+                    $value = new TypedValue(res);
+                } else {
+                    int a = $value.intVal;
+                    int b = $right.value.intVal;
+                    int r = $op.getText().equals("+") ? (a + b) : (a - b);
+                    $value = new TypedValue(r);
+                }
+            }
+        }
+      )*
+    ;
+
+term returns [TypedValue value]
+    : left=factor { $value = $left.value; }
+      ( op=('*'|'/') right=factor
+        {
             if (!isNumeric($value) || !isNumeric($right.value))
-              throw new RuntimeException("Operator " + $op.getText() + " requires numeric operands");
+                throw new RuntimeException("Operator " + $op.getText() + " requires numeric operands");
 
             if ($value.kind == TypedValue.Kind.DECIMAL || $right.value.kind == TypedValue.Kind.DECIMAL) {
                 BigDecimal a = $value.asBigDecimal();
                 BigDecimal b = $right.value.asBigDecimal();
-                BigDecimal res = $op.getText().equals("+") ? a.add(b) : a.subtract(b);
-
+                BigDecimal res;
+                if ($op.getText().equals("*")) res = a.multiply(b);
+                else res = a.divide(b, 18, java.math.RoundingMode.HALF_UP);
                 $value = new TypedValue(res);
-            }
-            else
-            {
+            } else {
                 int a = $value.intVal;
                 int b = $right.value.intVal;
-                int r = $op.getText().equals("+") ? (a + b) : (a - b);
-
-                $value = new TypedValue(r);
+                if ($op.getText().equals("*")) $value = new TypedValue(a * b);
+                else {
+                    if (b == 0) throw new RuntimeException("Division by zero");
+                    $value = new TypedValue(a / b);
+                }
             }
         }
-    }
-)*;
+      )*
+    ;
 
-term returns [TypedValue value] : left = factor
-{
-    $value = $left.value;
-}
-(   op=('*'|'/') right = factor
-  {
-      if (!isNumeric($value) || !isNumeric($right.value))
-        throw new RuntimeException("Operator " + $op.getText() + " requires numeric operands");
-
-      if ($value.kind == TypedValue.Kind.DECIMAL || $right.value.kind == TypedValue.Kind.DECIMAL) {
-        BigDecimal a = $value.asBigDecimal();
-        BigDecimal b = $right.value.asBigDecimal();
-        BigDecimal res;
-
-        if ($op.getText().equals("*")) res = a.multiply(b);
-        else res = a.divide(b, 18, java.math.RoundingMode.HALF_UP); // division scale
-        $value = new TypedValue(res);
-      }
-      else
+printf_stmt
+    : 'printf' '(' expr ')' ';'
       {
-        int a = $value.intVal;
-        int b = $right.value.intVal;
-        int r;
-
-        if ($op.getText().equals("*")) r = a * b;
-        else {
-          if (b == 0) throw new RuntimeException("Division by zero");
-          r = a / b;
-        }
-
-        $value = new TypedValue(r);
+          System.out.println($expr.value);
       }
-  }
-)*;
+    ;
 
-printf_stmt: 'printf' FP expr LP SCOMMA
-{
-    System.out.println($expr.value);
-};
+scanf_stmt
+    : 'scanf' '(' ID ')' ';'
+      {
+          java.util.Scanner scanner = new java.util.Scanner(System.in);
+          String name = $ID.getText();
+
+          if (!variables.containsKey(name))
+              throw new RuntimeException("Undefined variable: " + name);
+
+          TypedValue old = variables.get(name);
+
+          switch (old.kind) {
+              case INT:
+                  variables.put(name, new TypedValue(scanner.nextInt()));
+                  break;
+              case DECIMAL:
+                  variables.put(name, new TypedValue(scanner.nextBigDecimal()));
+                  break;
+              case BOOL:
+                  variables.put(name, new TypedValue(scanner.nextBoolean()));
+                  break;
+              case STRING:
+                  variables.put(name, new TypedValue(scanner.nextLine()));
+                  break;
+          }
+      }
+    ;
 
 factor returns [TypedValue value]
-: INT
-{
-    $value = new TypedValue(Integer.parseInt($INT.getText()));
-}
-| DECIMAL
-{
-    $value = new TypedValue(new BigDecimal($DECIMAL.getText()));
-}
-| BOOL
-{
-    $value = new TypedValue(Boolean.parseBoolean($BOOL.getText()));
-}
-| STRING
-{
-    String raw = $STRING.getText();
-    String inner = raw.substring(1, raw.length() - 1);
-    inner = inner
-        .replace("\\n", "\n")
-        .replace("\\t", "\t")
-        .replace("\\\"", "\"")
-        .replace("\\\\", "\\");
+    : INT { $value = new TypedValue(Integer.parseInt($INT.getText())); }
+    | DECIMAL { $value = new TypedValue(new BigDecimal($DECIMAL.getText())); }
+    | BOOL { $value = new TypedValue(Boolean.parseBoolean($BOOL.getText())); }
+    | STRING
+      {
+          String raw = $STRING.getText();
+          String inner = raw.substring(1, raw.length() - 1);
+          inner = inner
+              .replace("\\n", "\n")
+              .replace("\\t", "\t")
+              .replace("\\\"", "\"")
+              .replace("\\\\", "\\");
 
-    $value = new TypedValue(inner);
-}
-| id = ID
-{
-    String name = $id.getText();
-    if (!variables.containsKey(name)) throw new RuntimeException("Undefined variable: " + name);
-    $value = variables.get(name);
-}
-| FP e = expr LP
-{
-    $value = $e.value;
-};
+          $value = new TypedValue(inner);
+      }
+    | id=ID
+      {
+          String name = $id.getText();
+          if (!variables.containsKey(name)) throw new RuntimeException("Undefined variable: " + name);
+          $value = variables.get(name);
+      }
+    | '(' e=expr ')'
+      { $value = $e.value; }
+    ;
 
+// types
 type returns [TypeKind typeKind]
-: 'int'         { $typeKind = TypeKind.INT; }
-| 'bool'        { $typeKind = TypeKind.BOOL; }
-| 'decimal'     { $typeKind = TypeKind.DECIMAL; }
-| 'string'      { $typeKind = TypeKind.STRING; }
-;
+    : 'int'     { $typeKind = TypeKind.INT; }
+    | 'bool'   { $typeKind = TypeKind.BOOL; }
+    | 'decimal' { $typeKind = TypeKind.DECIMAL; }
+    | 'string'  { $typeKind = TypeKind.STRING; }
+    ;
 
-// Regras do Lexer
-INT: [0-9]+;
-BOOL: 'true' | 'false';
+// ----------------
+// Lexer rules (order matters)
+// ----------------
+
+// punctuation / relational tokens first (ensure they're matched before ID/other)
+LE: '<=';
+GE: '>=';
+EQ: '==';
+NEQ: '!=';
+LT: '<';
+GT: '>';
+
+// decimal before int so "1.5" matches DECIMAL
 DECIMAL: [0-9]+ '.' [0-9]+ ;
+
+// integers
+INT: [0-9]+ ;
+
+// boolean literal
+BOOL: 'true' | 'false' ;
+
+// string literal
 STRING: '"' ( ~["\\] | '\\' . )* '"' ;
-ID: [a-zA-Z] ([a-zA-Z] | [0-9])* ;
-OP: '+' | '-' | '*' | '/' ;
-IF: 'if' ;
-ELSE: 'else' ;
-WHILE: 'while' ;
-DO: 'do' ;
-FOR: 'for' ;
-FP: '(' ;
-LP: ')' ;
-FK: '{' ;
-LK: '}' ;
+
+// keywords (place before ID)
+IF: 'if';
+ELSE: 'else';
+WHILE: 'while';
+DO: 'do';
+FOR: 'for';
+PRINT: 'printf';
+SCANF: 'scanf';
+
+// assignment and operators
 OP_ASS: '=';
+PLUS: '+'; MINUS: '-'; MUL: '*'; DIV: '/' ;
+
+// identifiers
+ID: [a-zA-Z_] [a-zA-Z0-9_]* ;
+
+// punctuation tokens (if you prefer named tokens; parser uses literal punctuation)
+SEMI: ';';
 COMMA: ',';
-SCOMMA: ';';
+
+// whitespace/comments
 WS: [ \t\r\n]+ -> skip ;
+LINE_COMMENT: '//' ~[\r\n]* -> skip ;
+BLOCK_COMMENT: '/*' .*? '*/' -> skip ;
