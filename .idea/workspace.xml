@@ -5,12 +5,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="a40ed91b-3406-47f9-a094-28e738271e19" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/src/main/Input/JogoDoDragao.xpto" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/main/java/compiler/CCompilerVisitorImpl.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/.gitignore" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/antlr/CCompiler.g4" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/antlr/CCompiler.g4" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/org/example/Main.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/org/example/Main.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -56,6 +51,7 @@
     "Application.Main.executor": "Run",
     "ModuleVcsDetector.initialDetectionPerformed": "true",
     "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
     "RunOnceActivity.git.unshallow": "true",
     "SHARE_PROJECT_CONFIGURATION_FILES": "true",
     "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
@@ -135,7 +131,7 @@
       <workItem from="1764079155783" duration="96000" />
       <workItem from="1764079263274" duration="175000" />
       <workItem from="1764079469922" duration="26000" />
-      <workItem from="1764079508669" duration="24056000" />
+      <workItem from="1764079508669" duration="24934000" />
     </task>
     <servers />
   </component>
