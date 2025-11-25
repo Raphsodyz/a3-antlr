@@ -114,7 +114,7 @@ if_stmt returns [Runnable action]
     {
     final Supplier<TypedValue> condSupplier = $cond.value;
     final java.util.List<Runnable> thenActions = $thenBlock.actions;
-    final java.util.List<Runnable> elseActions = ($elseBlock.actions != null ? $elseBlock.actions : null);
+    final java.util.List<Runnable> elseActions = ($ELSE != null ? $elseBlock.actions : null);
     final int line = $IF.getLine();
     final int pos = $IF.getCharPositionInLine();
 
