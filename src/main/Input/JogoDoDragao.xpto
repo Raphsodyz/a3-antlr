@@ -1,0 +1,71 @@
+ int main() {
+                      int i;         // será o número do jogador
+                      decimal c;     // será o "poder mágico" do jogador
+                      string msg;    // será o nome do jogador
+
+                      printf("Bem-vindo ao jogo!
+");
+                      printf("Digite seu nome: ");
+                      scanf(msg);
+
+                      printf("Digite um inteiro entre 1 e 5: ");
+                      scanf(i);
+
+                      printf("Digite seu poder mágico (decimal): ");
+                      scanf(c);
+
+                      printf("Olá, ");
+                      printf(msg);
+                      printf("!
+");
+
+                      // Aumenta o número do jogador
+                      i = i + 2;
+                      c = c * 1.5;
+
+                      // Transformando em "nível"
+                      while (i < 10) {
+                          i = i + 1;
+                          printf("Subindo de nível: ");
+                          printf(i);
+                          printf("
+");
+                      }
+
+                      // Reduzindo pontos de energia
+                      do {
+                          printf("Energia atual: ");
+                          printf(i);
+                          printf("
+");
+                          i = i - 1;
+                      } while (i > 0);
+
+                      // Desafio final baseado no poder mágico
+                      if (c > 5.0) {
+                          i = i * 2;
+                          printf("Parabéns, ");
+                          printf(msg);
+                          printf(", você derrotou o dragão!
+");
+                      } else {
+                          c = c + 3.0;
+                          printf("Oh não, ");
+                          printf(msg);
+                          printf(", você precisa de mais treino...
+");
+                      }
+
+                      printf("Resultado final do jogo:
+");
+                      printf("Nível final: ");
+                      printf(i);
+                      printf("
+Poder mágico final: ");
+                      printf(c);
+                      printf("
+Obrigado por jogar, ");
+                      printf(msg);
+                      printf("!
+");
+                  }
