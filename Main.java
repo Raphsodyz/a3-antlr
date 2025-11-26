@@ -4,7 +4,7 @@ import generated.*;
 
 public class Main {
     public static void main(String[] args) {
-        String input = "int main() { int a = 10; int b = 30; printf(a == b); printf(a == 5); printf(a > 5); printf(a < 20); printf(a + 1 == 11); if (a > 5) { printf(\"maior\"); } else { printf(\"menor\"); } }";
+        String input = "int main() { int i = 0; do { printf(i); i = i + 1; } while (i < 3); }";
 
         // Criar o lexer
         CharStream charStream = CharStreams.fromString(input);

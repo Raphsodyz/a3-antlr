@@ -78,10 +78,14 @@ options{
 prog: main_function function* EOF;
 main_function: type 'main' FP LP FK function_body LK;
 function: type ID FP LP FK function_body LK;
+
 statement returns [Runnable action]
     : d=declaration     { $action = $d.action; }
     | a=assignment      { $action = $a.action; }
     | p=printf_stmt     { $action = $p.action; }
+    | ds=do_stmt        { $action = $ds.action; }
+    | ws=while_stmt     { $action = $ws.action; }
+    | fs=for_stmt       { $action = $fs.action; }
     | e=expr SCOMMA     { $action = null; }
     | i=if_stmt         { $action = $i.action; }
     ;
@@ -135,12 +139,120 @@ if_stmt returns [Runnable action]
     };
 };
 
+do_stmt returns [Runnable action]
+    : DO thenBlock = block WHILE FP cond = expr LP SCOMMA
+      {
+        final java.util.List<Runnable> loopActions = $thenBlock.actions;
+        final Supplier<TypedValue> condSupplier = $cond.value;
+        final int line = $WHILE.getLine();
+        final int pos = $WHILE.getCharPositionInLine();
+
+        $action = new Runnable() {
+            public void run() {
+                if (loopActions == null) return;
+                while (true) {
+                    for (Runnable r : loopActions) {
+                        r.run();
+                    }
+
+                    TypedValue cv = condSupplier.get();
+                    if (cv == null || cv.kind != TypedValue.Kind.BOOL)
+                        throw new RuntimeException("while condition must be boolean at line " + line + ":" + pos);
+
+                    if (!cv.boolVal) break;
+                }
+            }
+        };
+      }
+    ;
+
+while_stmt returns [Runnable action]
+    : WHILE FP cond = expr LP body = block
+      {
+        final Supplier<TypedValue> condSupplier = $cond.value;
+        final java.util.List<Runnable> loopActions = $body.actions;
+        final int line = $WHILE.getLine();
+        final int pos = $WHILE.getCharPositionInLine();
+
+        $action = new Runnable() {
+            public void run() {
+                if (loopActions == null) return;
+                while (true) {
+                    TypedValue cv = condSupplier.get();
+                    if (cv == null || cv.kind != TypedValue.Kind.BOOL)
+                        throw new RuntimeException("while condition must be boolean at line " + line + ":" + pos);
+
+                    if (!cv.boolVal) break;
+
+                    for (Runnable r : loopActions) {
+                        r.run();
+                    }
+                }
+            }
+        };
+      }
+    ;
+
+for_stmt returns [Runnable action]
+    : FOR FP
+        ( initDecl = declaration
+        | initAssign = assignment
+        | initExpr = expr
+        )? SCOMMA
+        cond = expr?
+        SCOMMA
+        ( updAssign = assignment | updExpr = expr )?
+      LP body = block
+      {
+        final Runnable initAction = ($initDecl.action != null ? $initDecl.action : ($initAssign.action != null ? $initAssign.action : null));
+        final Supplier<TypedValue> initExprSupplier = ($initExpr.value != null ? $initExpr.value : null);
+
+        final Supplier<TypedValue> condSupplier = ($cond.value != null ? $cond.value : null);
+
+        final Runnable updateAction = ($updAssign.action != null ? $updAssign.action : null);
+        final Supplier<TypedValue> updateExprSupplier = ($updExpr.value != null ? $updExpr.value : null);
+
+        final java.util.List<Runnable> bodyActions = $body.actions;
+        final int line = $FOR.getLine();
+        final int pos = $FOR.getCharPositionInLine();
+
+        $action = new Runnable() {
+            public void run() {
+                if (initAction != null) {
+                    initAction.run();
+                } else if (initExprSupplier != null) {
+                    initExprSupplier.get();
+                }
+
+                while (true) {
+                    if (condSupplier != null) {
+                        TypedValue cv = condSupplier.get();
+                        if (cv == null || cv.kind != TypedValue.Kind.BOOL)
+                            throw new RuntimeException("for condition must be boolean at line " + line + ":" + pos);
+                        if (!cv.boolVal) break;
+                    }
+
+                    if (bodyActions != null) {
+                        for (Runnable r : bodyActions) r.run();
+                    }
+
+                    if (updateAction != null) {
+                        updateAction.run();
+                    } else if (updateExprSupplier != null) {
+                        updateExprSupplier.get();
+                    }
+                }
+            }
+        };
+      }
+    ;
+
 declaration returns [Runnable action]
 : t = type id = ID ( OP_ASS e = expr )?
     {
     final String name = $id.getText();
     final TypeKind typeKind = $t.typeKind;
-    final Supplier<TypedValue> initSupplier = ($e.value != null ? $e.value : null);
+    final Supplier<TypedValue> initSupplier = ($OP_ASS != null ? $e.value : null);
     final int line = $id.getLine();
     final int pos = $id.getCharPositionInLine();
 
@@ -427,6 +539,9 @@ DECIMAL: [0-9]+ '.' [0-9]+ ;
 STRING: '"' ( ~["\\] | '\\' . )* '"' ;
 IF: 'if' ;
 ELSE: 'else' ;
+DO: 'do' ;
+WHILE: 'while' ;
+FOR: 'for' ;
 EQ: '==' ;
 GT: '>' ;
 LT: '<' ;
