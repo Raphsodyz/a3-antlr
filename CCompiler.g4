@@ -10,6 +10,7 @@ options{
     import java.util.Map;
     import java.util.HashMap;
     import java.util.function.Supplier;
+    import java.util.Scanner;
 }
 
 @parser::members{
@@ -48,6 +49,7 @@ options{
     }
 
     private final Map<String, TypedValue> variables = new HashMap<>();
+    private static final Scanner inputScanner = new Scanner(System.in);
 
     enum TypeKind { INT, BOOL, DECIMAL, STRING }
     private boolean isNumeric(TypedValue v){
@@ -78,21 +80,20 @@ options{
 prog: main_function function* EOF;
 main_function: type 'main' FP LP FK function_body LK;
 function: type ID FP LP FK function_body LK;
-
 statement returns [Runnable action]
     : d=declaration     { $action = $d.action; }
     | a=assignment      { $action = $a.action; }
     | p=printf_stmt     { $action = $p.action; }
+    | s=scanf_stmt      { $action = $s.action; }
     | ds=do_stmt        { $action = $ds.action; }
     | ws=while_stmt     { $action = $ws.action; }
-    | fs=for_stmt       { $action = $fs.action; }
     | e=expr SCOMMA     { $action = null; }
     | i=if_stmt         { $action = $i.action; }
     ;
 
 function_body
 : (st+=statement SCOMMA? )*
-    {
+{
     if ($st != null) {
         for (int i = 0; i < $st.size(); ++i) {
             Runnable r = $st.get(i).action;
@@ -118,7 +119,7 @@ if_stmt returns [Runnable action]
     {
     final Supplier<TypedValue> condSupplier = $cond.value;
     final java.util.List<Runnable> thenActions = $thenBlock.actions;
-    final java.util.List<Runnable> elseActions = ($ELSE != null ? $elseBlock.actions : null);
+    final java.util.List<Runnable> elseActions = ($ELSE == null ? null : $elseBlock.actions);
     final int line = $IF.getLine();
     final int pos = $IF.getCharPositionInLine();
 
@@ -140,112 +141,56 @@ if_stmt returns [Runnable action]
 };
 
 do_stmt returns [Runnable action]
-    : DO thenBlock = block WHILE FP cond = expr LP SCOMMA
-      {
-        final java.util.List<Runnable> loopActions = $thenBlock.actions;
-        final Supplier<TypedValue> condSupplier = $cond.value;
-        final int line = $WHILE.getLine();
-        final int pos = $WHILE.getCharPositionInLine();
+: DO thenBlock = block WHILE FP cond = expr LP SCOMMA
+    {
+    final java.util.List<Runnable> loopActions = $thenBlock.actions;
+    final Supplier<TypedValue> condSupplier = $cond.value;
+    final int line = $WHILE.getLine();
+    final int pos = $WHILE.getCharPositionInLine();
 
-        $action = new Runnable() {
-            public void run() {
-                if (loopActions == null) return;
-                while (true) {
-                    for (Runnable r : loopActions) {
-                        r.run();
-                    }
-
-                    TypedValue cv = condSupplier.get();
-                    if (cv == null || cv.kind != TypedValue.Kind.BOOL)
-                        throw new RuntimeException("while condition must be boolean at line " + line + ":" + pos);
-
-                    if (!cv.boolVal) break;
+    $action = new Runnable() {
+        public void run() {
+            if (loopActions == null) return;
+            while (true) {
+                for (Runnable r : loopActions) {
+                    r.run();
                 }
+
+                TypedValue cv = condSupplier.get();
+                if (cv == null || cv.kind != TypedValue.Kind.BOOL)
+                    throw new RuntimeException("while condition must be boolean at line " + line + ":" + pos);
+
+                if (!cv.boolVal) break;
             }
-        };
-      }
-    ;
+        }
+    };
+};
 
 while_stmt returns [Runnable action]
-    : WHILE FP cond = expr LP body = block
-      {
-        final Supplier<TypedValue> condSupplier = $cond.value;
-        final java.util.List<Runnable> loopActions = $body.actions;
-        final int line = $WHILE.getLine();
-        final int pos = $WHILE.getCharPositionInLine();
+: WHILE FP cond = expr LP body = block
+    {
+    final Supplier<TypedValue> condSupplier = $cond.value;
+    final java.util.List<Runnable> loopActions = $body.actions;
+    final int line = $WHILE.getLine();
+    final int pos = $WHILE.getCharPositionInLine();
 
-        $action = new Runnable() {
-            public void run() {
-                if (loopActions == null) return;
-                while (true) {
-                    TypedValue cv = condSupplier.get();
-                    if (cv == null || cv.kind != TypedValue.Kind.BOOL)
-                        throw new RuntimeException("while condition must be boolean at line " + line + ":" + pos);
+    $action = new Runnable() {
+        public void run() {
+            if (loopActions == null) return;
+            while (true) {
+                TypedValue cv = condSupplier.get();
+                if (cv == null || cv.kind != TypedValue.Kind.BOOL)
+                    throw new RuntimeException("while condition must be boolean at line " + line + ":" + pos);
 
-                    if (!cv.boolVal) break;
+                if (!cv.boolVal) break;
 
-                    for (Runnable r : loopActions) {
-                        r.run();
-                    }
+                for (Runnable r : loopActions) {
+                    r.run();
                 }
             }
-        };
-      }
-    ;
-
-for_stmt returns [Runnable action]
-    : FOR FP
-        ( initDecl = declaration
-        | initAssign = assignment
-        | initExpr = expr
-        )? SCOMMA
-        cond = expr?
-        SCOMMA
-        ( updAssign = assignment | updExpr = expr )?
-      LP body = block
-      {
-        final Runnable initAction = ($initDecl.action != null ? $initDecl.action : ($initAssign.action != null ? $initAssign.action : null));
-        final Supplier<TypedValue> initExprSupplier = ($initExpr.value != null ? $initExpr.value : null);
-
-        final Supplier<TypedValue> condSupplier = ($cond.value != null ? $cond.value : null);
-
-        final Runnable updateAction = ($updAssign.action != null ? $updAssign.action : null);
-        final Supplier<TypedValue> updateExprSupplier = ($updExpr.value != null ? $updExpr.value : null);
-
-        final java.util.List<Runnable> bodyActions = $body.actions;
-        final int line = $FOR.getLine();
-        final int pos = $FOR.getCharPositionInLine();
-
-        $action = new Runnable() {
-            public void run() {
-                if (initAction != null) {
-                    initAction.run();
-                } else if (initExprSupplier != null) {
-                    initExprSupplier.get();
-                }
-
-                while (true) {
-                    if (condSupplier != null) {
-                        TypedValue cv = condSupplier.get();
-                        if (cv == null || cv.kind != TypedValue.Kind.BOOL)
-                            throw new RuntimeException("for condition must be boolean at line " + line + ":" + pos);
-                        if (!cv.boolVal) break;
-                    }
-
-                    if (bodyActions != null) {
-                        for (Runnable r : bodyActions) r.run();
-                    }
-
-                    if (updateAction != null) {
-                        updateAction.run();
-                    } else if (updateExprSupplier != null) {
-                        updateExprSupplier.get();
-                    }
-                }
-            }
-        };
-      }
-    ;
+        }
+    };
+};
 
 declaration returns [Runnable action]
 : t = type id = ID ( OP_ASS e = expr )?
@@ -329,6 +274,47 @@ printf_stmt returns [Runnable action]
     };
 };
 
+scanf_stmt returns [Runnable action]
+: 'scanf' FP id = ID LP
+{
+    final String name = $id.getText();
+    final int line = $id.getLine();
+    final int pos = $id.getCharPositionInLine();
+
+    $action = new Runnable() {
+        public void run() {
+            if (!variables.containsKey(name))
+                throw new RuntimeException("Undefined variable for scanf: " + name + " at line " + line + ":" + pos);
+
+            TypedValue old = variables.get(name);
+            String raw = inputScanner.nextLine();
+
+            try {
+                TypedValue newVal;
+                switch (old.kind) {
+                    case INT:
+                        newVal = new TypedValue(Integer.parseInt(raw.trim()));
+                        break;
+                    case DECIMAL:
+                        newVal = new TypedValue(new BigDecimal(raw.trim()));
+                        break;
+                    case BOOL:
+                        newVal = new TypedValue(Boolean.parseBoolean(raw.trim()));
+                        break;
+                    case STRING:
+                        newVal = new TypedValue(raw);
+                        break;
+                    default:
+                        throw new RuntimeException("Unsupported variable type for scanf: " + old.kind);
+                }
+                variables.put(name, newVal);
+            } catch (NumberFormatException ex) {
+                throw new RuntimeException("scanf: failed to parse input for variable '" + name + "' at line " + line + ":" + pos + " — " + ex.getMessage());
+            }
+        }
+    };
+};
+
 expr returns [Supplier<TypedValue> value]
 : left = compare
 {
@@ -337,60 +323,60 @@ expr returns [Supplier<TypedValue> value]
 
 compare returns [Supplier<TypedValue> value]
 : left = add
-    {
+{
     $value = $left.value;
-    }
+}
 ( op=(EQ | GT | LT) right = add
     {
-    final Supplier<TypedValue> leftSup = $value;
-    final Supplier<TypedValue> rightSup = $right.value;
-    final String operator = $op.getText();
+        final Supplier<TypedValue> leftSup = $value;
+        final Supplier<TypedValue> rightSup = $right.value;
+        final String operator = $op.getText();
 
-    $value = new Supplier<TypedValue>() {
-        public TypedValue get() {
-        TypedValue l = leftSup.get();
-        TypedValue r = rightSup.get();
+        $value = new Supplier<TypedValue>() {
+            public TypedValue get() {
+            TypedValue l = leftSup.get();
+            TypedValue r = rightSup.get();
 
-        if (operator.equals("==")) {
-            if (l.kind == r.kind) {
-                switch (l.kind) {
-                    case INT:   return new TypedValue(l.intVal.equals(r.intVal));
-                    case BOOL:  return new TypedValue(l.boolVal.equals(r.boolVal));
-                    case DECIMAL: return new TypedValue(l.asBigDecimal().compareTo(r.asBigDecimal()) == 0);
-                    case STRING: return new TypedValue(l.strVal.equals(r.strVal));
+            if (operator.equals("==")) {
+                if (l.kind == r.kind) {
+                    switch (l.kind) {
+                        case INT:   return new TypedValue(l.intVal.equals(r.intVal));
+                        case BOOL:  return new TypedValue(l.boolVal.equals(r.boolVal));
+                        case DECIMAL: return new TypedValue(l.asBigDecimal().compareTo(r.asBigDecimal()) == 0);
+                        case STRING: return new TypedValue(l.strVal.equals(r.strVal));
+                    }
                 }
+
+                if ((l.kind == TypedValue.Kind.INT && r.kind == TypedValue.Kind.DECIMAL) ||
+                    (l.kind == TypedValue.Kind.DECIMAL && r.kind == TypedValue.Kind.INT)) {
+                    return new TypedValue(l.asBigDecimal().compareTo(r.asBigDecimal()) == 0);
+                }
+
+                throw new RuntimeException("Operator == not supported for operands: " + l.kind + " and " + r.kind);
             }
 
-            if ((l.kind == TypedValue.Kind.INT && r.kind == TypedValue.Kind.DECIMAL) ||
-                (l.kind == TypedValue.Kind.DECIMAL && r.kind == TypedValue.Kind.INT)) {
-                return new TypedValue(l.asBigDecimal().compareTo(r.asBigDecimal()) == 0);
+            if (operator.equals(">") || operator.equals("<")) {
+                if ( (l.kind == TypedValue.Kind.INT || l.kind == TypedValue.Kind.DECIMAL)
+                    && (r.kind == TypedValue.Kind.INT || r.kind == TypedValue.Kind.DECIMAL) ) {
+                    BigDecimal a = l.asBigDecimal();
+                    BigDecimal b = r.asBigDecimal();
+                    int cmp = a.compareTo(b);
+                    boolean res = operator.equals(">") ? (cmp > 0) : (cmp < 0);
+                    return new TypedValue(res);
+                }
+
+                if (l.kind == TypedValue.Kind.STRING && r.kind == TypedValue.Kind.STRING) {
+                    int cmp = l.strVal.compareTo(r.strVal);
+                    boolean res = operator.equals(">") ? (cmp > 0) : (cmp < 0);
+                    return new TypedValue(res);
+                }
+
+                throw new RuntimeException("Operator " + operator + " requires numeric or string operands");
             }
 
-            throw new RuntimeException("Operator == not supported for operands: " + l.kind + " and " + r.kind);
-        }
-
-        if (operator.equals(">") || operator.equals("<")) {
-            if ( (l.kind == TypedValue.Kind.INT || l.kind == TypedValue.Kind.DECIMAL)
-                && (r.kind == TypedValue.Kind.INT || r.kind == TypedValue.Kind.DECIMAL) ) {
-                BigDecimal a = l.asBigDecimal();
-                BigDecimal b = r.asBigDecimal();
-                int cmp = a.compareTo(b);
-                boolean res = operator.equals(">") ? (cmp > 0) : (cmp < 0);
-                return new TypedValue(res);
+            throw new RuntimeException("Unknown comparison operator: " + operator);
             }
-
-            if (l.kind == TypedValue.Kind.STRING && r.kind == TypedValue.Kind.STRING) {
-                int cmp = l.strVal.compareTo(r.strVal);
-                boolean res = operator.equals(">") ? (cmp > 0) : (cmp < 0);
-                return new TypedValue(res);
-            }
-
-            throw new RuntimeException("Operator " + operator + " requires numeric or string operands");
-        }
-
-        throw new RuntimeException("Unknown comparison operator: " + operator);
-        }
-    };
+        };
     }
 )*;
 
@@ -526,11 +512,11 @@ factor returns [Supplier<TypedValue> value]
 };
 
 type returns [TypeKind typeKind]
-    : 'int'         { $typeKind = TypeKind.INT; }
-    | 'bool'        { $typeKind = TypeKind.BOOL; }
-    | 'decimal'     { $typeKind = TypeKind.DECIMAL; }
-    | 'string'      { $typeKind = TypeKind.STRING; }
-    ;
+: 'int'         { $typeKind = TypeKind.INT; }
+| 'bool'        { $typeKind = TypeKind.BOOL; }
+| 'decimal'     { $typeKind = TypeKind.DECIMAL; }
+| 'string'      { $typeKind = TypeKind.STRING; }
+;
 
 // Regras do Lexer
 INT: [0-9]+;
@@ -541,7 +527,6 @@ IF: 'if' ;
 ELSE: 'else' ;
 DO: 'do' ;
 WHILE: 'while' ;
-FOR: 'for' ;
 EQ: '==' ;
 GT: '>' ;
 LT: '<' ;
